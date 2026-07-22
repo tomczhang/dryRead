@@ -485,11 +485,25 @@
 
   el.btnTest.addEventListener('click', testConnection);
 
+  // 写剪贴板：优先 Clipboard API，失败时降级到 textarea + execCommand
+  function copyText(text) {
+    return navigator.clipboard.writeText(text).catch(function () {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = document.execCommand('copy');
+      ta.remove();
+      if (!ok) throw new Error('copy failed');
+    });
+  }
+
   el.btnCopy.addEventListener('click', function () {
     if (!lastResult) return;
     var md = resultToMarkdown(lastResult, lastResult._page);
-    navigator.clipboard
-      .writeText(md)
+    copyText(md)
       .then(function () {
         el.btnCopy.textContent = '✓ 已复制为 Markdown';
         setTimeout(function () {
