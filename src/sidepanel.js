@@ -45,10 +45,6 @@
     deletionRatio: $('deletion-ratio'),
     strengths: $('strengths'),
     weaknesses: $('weaknesses'),
-    secDims: $('sec-dims'),
-    dimList: $('dim-list'),
-    lengthPenalty: $('length-penalty'),
-    lengthRationale: $('length-rationale'),
     secHighlights: $('sec-highlights'),
     listHighlights: $('list-highlights'),
     highlightsEmpty: $('highlights-empty'),
@@ -341,14 +337,6 @@
   }
 
   // ---------- 渲染结果 ----------
-  var DIM_META = [
-    { key: 'claim', name: '主张与判断' },
-    { key: 'info', name: '信息与论证' },
-    { key: 'insight', name: '洞见与原创性' },
-    { key: 'structure', name: '结构与表达' },
-    { key: 'density', name: '信息密度' }
-  ];
-
   function scoreClass(score) {
     if (score >= 80) return 'good';
     if (score >= 60) return 'mid';
@@ -370,44 +358,6 @@
     });
   }
 
-  function renderDimensions(dims) {
-    el.dimList.textContent = '';
-    DIM_META.forEach(function (m) {
-      var d = dims[m.key];
-      if (!d) return;
-      var item = document.createElement('div');
-      item.className = 'dim-item';
-
-      var row = document.createElement('div');
-      row.className = 'dim-row';
-      var name = document.createElement('span');
-      name.className = 'dim-name';
-      name.textContent = m.name;
-      var sc = document.createElement('span');
-      sc.className = 'dim-score';
-      sc.textContent = d.score + '/' + d.max;
-      row.appendChild(name);
-      row.appendChild(sc);
-
-      var bar = document.createElement('div');
-      bar.className = 'dim-bar';
-      var fill = document.createElement('div');
-      fill.className = 'dim-bar-fill';
-      fill.style.width = (d.max ? Math.round((d.score / d.max) * 100) : 0) + '%';
-      bar.appendChild(fill);
-
-      item.appendChild(row);
-      item.appendChild(bar);
-      if (d.rationale) {
-        var r = document.createElement('p');
-        r.className = 'dim-rationale';
-        r.textContent = d.rationale;
-        item.appendChild(r);
-      }
-      el.dimList.appendChild(item);
-    });
-  }
-
   function renderResult(result) {
     lastResult = result;
 
@@ -418,7 +368,6 @@
       hide(el.secScore);
       hide(el.secAiCap);
       hide(el.secVerdictDetail);
-      hide(el.secDims);
       renderHighlights(result.highlights);
       setMainState('result');
       return;
@@ -426,7 +375,6 @@
     hide(el.secNotApplicable);
     show(el.secScore);
     show(el.secVerdictDetail);
-    show(el.secDims);
 
     var score = result.finalScore;
     el.scoreRing.style.setProperty('--pct', String(score));
@@ -464,19 +412,6 @@
     renderChips(el.strengths, result.topStrengths, 'good', '✓ ');
     renderChips(el.weaknesses, result.topWeaknesses, 'bad', '! ');
 
-    // 五维明细 + 长文扣分
-    renderDimensions(result.dimensions);
-    var pen = result.length ? result.length.appliedPenalty : 0;
-    el.lengthPenalty.textContent = pen > 0 ? '-' + pen : '0';
-    var lr = [];
-    if (result.length) {
-      lr.push('正文约 ' + result.characterCount + ' 字（' + result.length.band + '）');
-      if (result.length.exemptionLevel === 'full') lr.push('满足≥3项豁免，实际扣分 0');
-      else if (result.length.exemptionLevel === 'partial') lr.push('满足2项豁免，扣分降一档');
-      if (result.length.rationale) lr.push(result.length.rationale);
-    }
-    el.lengthRationale.textContent = lr.join('；');
-
     renderHighlights(result.highlights);
     setMainState('result');
   }
@@ -502,14 +437,6 @@
       lines.push('> ⚠️ 检测到系统性 AI 模板化痕迹，总分封顶为 50（文本特征判断，不代表作者一定使用了 AI）。');
       lines.push('> 信号类别：' + result.aiSmell.signalCategories.join('、'));
     }
-    lines.push('');
-    lines.push('## 评分明细');
-    DIM_META.forEach(function (m) {
-      var d = result.dimensions[m.key];
-      if (!d) return;
-      lines.push('- ' + m.name + '：' + d.score + '/' + d.max + (d.rationale ? ' — ' + d.rationale : ''));
-    });
-    lines.push('- 长文扣分：' + (result.length && result.length.appliedPenalty ? '-' + result.length.appliedPenalty : '0'));
     if (result.topStrengths && result.topStrengths.length) {
       lines.push('');
       lines.push('**主要亮点**：' + result.topStrengths.join('；'));
