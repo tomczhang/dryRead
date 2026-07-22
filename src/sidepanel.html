@@ -75,29 +75,68 @@
 
     <!-- 结果 -->
     <div id="state-result" class="hidden">
-      <!-- 干货浓度 + 结论 -->
-      <section class="card verdict-card">
+      <!-- 不适用态 -->
+      <section class="card not-applicable hidden" id="sec-not-applicable">
+        <div class="na-emoji">📐</div>
+        <div class="na-title">本评分框架不适用于这篇</div>
+        <p id="na-reason" class="na-reason"></p>
+      </section>
+
+      <!-- 得分 + 阅读建议 -->
+      <section class="card verdict-card" id="sec-score">
         <div class="score-wrap">
           <div class="score-ring" id="score-ring">
             <span id="score-num" class="score-num">0</span>
           </div>
           <div class="score-meta">
-            <span class="score-label">干货浓度</span>
+            <span class="score-label">最终得分 / 100</span>
             <span id="verdict-badge" class="verdict-badge">—</span>
           </div>
         </div>
-        <p id="summary" class="summary"></p>
+        <p id="thesis" class="summary"></p>
       </section>
 
-      <!-- 精华（五合一） -->
+      <!-- AI 味封顶提示 -->
+      <section class="ai-cap-banner hidden" id="sec-ai-cap">
+        <div class="ai-cap-title">⚠️ 检测到系统性的 AI 模板化痕迹，总分封顶为 50</div>
+        <div class="ai-cap-note">这是一项文本特征判断，不代表能确定作者是否使用了 AI。</div>
+        <ul id="ai-cap-cats" class="ai-cap-cats"></ul>
+      </section>
+
+      <!-- 关键结论 -->
+      <section class="card" id="sec-verdict-detail">
+        <div class="kv" id="kv-irreducible">
+          <span class="kv-label">🔑 最值得读的部分</span>
+          <span class="kv-val" id="irreducible"></span>
+        </div>
+        <div class="kv" id="kv-deletion">
+          <span class="kv-label">✂️ 预计可无损删去</span>
+          <span class="kv-val" id="deletion-ratio"></span>
+        </div>
+        <div class="chips" id="strengths"></div>
+        <div class="chips" id="weaknesses"></div>
+      </section>
+
+      <!-- 五维明细 -->
+      <section class="card" id="sec-dims">
+        <h2 class="sec-title"><span class="sec-emoji">📊</span>评分明细</h2>
+        <div id="dim-list" class="dim-list"></div>
+        <div class="dim-row length-row" id="length-row">
+          <span class="dim-name">长文扣分</span>
+          <span class="dim-score" id="length-penalty">0</span>
+        </div>
+        <p id="length-rationale" class="dim-rationale length-rationale"></p>
+      </section>
+
+      <!-- 精华定位 -->
       <section class="card" id="sec-highlights">
         <h2 class="sec-title"><span class="sec-emoji">💧</span>精华（点击在原文中高亮定位）</h2>
         <div id="list-highlights" class="highlight-list"></div>
-        <p id="highlights-empty" class="highlights-empty hidden">这篇没什么值得带走的干货。</p>
+        <p id="highlights-empty" class="highlights-empty hidden">本文无可定位的精华片段。</p>
       </section>
 
       <div class="result-footer">
-        <button id="btn-copy" class="ghost-btn">复制精华</button>
+        <button id="btn-copy" class="ghost-btn">复制评分报告</button>
       </div>
     </div>
   </main>

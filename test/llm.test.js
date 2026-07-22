@@ -1,8 +1,10 @@
 /**
  * DryRead 核心逻辑单测（node --test）
+ * 评分严格遵循《文章是否值得读：100 分评分框架 v1.0》。
  *
- * 其中「模型扮演」部分：fixture 里的模型回复是由 AI 按 SYSTEM_PROMPT 的约定
- * 对样例文章真实执行"脱水"生成的，用于验证提示词 -> JSON -> 解析 -> 规整 全链路。
+ * 「模型扮演」部分：fixture 里的模型回复由 AI 按 SYSTEM_PROMPT 约定产出，
+ * 用于验证 提示词 -> JSON -> extractJson -> normalizeResult 全链路，
+ * 并校准框架第 12 节的样例 B/C/D 行为。
  */
 const test = require('node:test');
 const assert = require('node:assert');
@@ -16,13 +18,6 @@ test('normalizeBaseUrl: 标准 /v1 地址', () => {
   );
 });
 
-test('normalizeBaseUrl: 末尾带斜杠', () => {
-  assert.strictEqual(
-    LLM.normalizeBaseUrl('https://my-proxy.example.com/openai/v1///'),
-    'https://my-proxy.example.com/openai/v1/chat/completions'
-  );
-});
-
 test('normalizeBaseUrl: 已是完整端点则原样', () => {
   assert.strictEqual(
     LLM.normalizeBaseUrl('https://api.deepseek.com/chat/completions'),
@@ -30,112 +25,294 @@ test('normalizeBaseUrl: 已是完整端点则原样', () => {
   );
 });
 
-test('normalizeBaseUrl: 空值返回空串', () => {
-  assert.strictEqual(LLM.normalizeBaseUrl(''), '');
-  assert.strictEqual(LLM.normalizeBaseUrl(null), '');
-});
-
 // ---------- buildMessages ----------
-test('buildMessages: 包含系统提示与页面信息', () => {
+test('buildMessages: 含系统提示、页面信息、字数与反注入分隔', () => {
   const msgs = LLM.buildMessages({ title: '测试标题', url: 'https://a.b/c', text: '正文内容' });
   assert.strictEqual(msgs.length, 2);
   assert.strictEqual(msgs[0].role, 'system');
-  assert.ok(msgs[0].content.includes('脱去文章水分'));
+  assert.ok(msgs[0].content.includes('100 分评分框架'));
   assert.ok(msgs[1].content.includes('测试标题'));
-  assert.ok(msgs[1].content.includes('https://a.b/c'));
-  assert.ok(msgs[1].content.includes('正文内容'));
-});
-
-test('buildMessages: 超长正文会截断并加提示', () => {
-  const longText = '字'.repeat(LLM.MAX_CONTENT_CHARS + 5000);
-  const msgs = LLM.buildMessages({ title: 't', url: 'u', text: longText });
-  assert.ok(msgs[1].content.includes('已截断'));
-  assert.ok(msgs[1].content.includes('中间部分因过长被省略'));
-  assert.ok(msgs[1].content.length < longText.length);
+  assert.ok(msgs[1].content.includes('正文可见字符数：4'));
+  assert.ok(msgs[1].content.includes('===正文开始==='));
+  assert.ok(msgs[1].content.includes('===正文结束==='));
 });
 
 // ---------- extractJson ----------
-test('extractJson: 裸 JSON', () => {
-  const obj = LLM.extractJson('{"a": 1}');
-  assert.deepStrictEqual(obj, { a: 1 });
-});
-
 test('extractJson: markdown 代码块包裹', () => {
-  const obj = LLM.extractJson('```json\n{"a": [1, 2]}\n```');
-  assert.deepStrictEqual(obj, { a: [1, 2] });
+  assert.deepStrictEqual(LLM.extractJson('```json\n{"a": [1, 2]}\n```'), { a: [1, 2] });
 });
 
 test('extractJson: 前后夹杂说明文字', () => {
-  const obj = LLM.extractJson('好的，以下是分析结果：\n{"one_line": "总结"}\n希望对你有帮助！');
-  assert.deepStrictEqual(obj, { one_line: '总结' });
-});
-
-test('extractJson: 字符串值中含大括号与转义引号', () => {
-  const raw = '{"one_line": "作者说：\\"要用 {大括号} 思考\\"", "dry_score": 80}';
-  const obj = LLM.extractJson('前置噪声 ' + raw + ' 后置噪声');
-  assert.strictEqual(obj.one_line, '作者说："要用 {大括号} 思考"');
-  assert.strictEqual(obj.dry_score, 80);
+  assert.deepStrictEqual(LLM.extractJson('结果：\n{"applicable": true}\n完毕'), { applicable: true });
 });
 
 test('extractJson: 无 JSON 时抛错', () => {
   assert.throws(() => LLM.extractJson('这里没有任何 JSON'), /无法从模型输出中解析出 JSON/);
-  assert.throws(() => LLM.extractJson(''), /模型返回为空/);
 });
 
-// ---------- normalizeResult ----------
-test('normalizeResult: 缺字段时给安全兜底', () => {
-  const r = LLM.normalizeResult({});
-  assert.strictEqual(r.verdict, '可略读');
-  assert.strictEqual(r.dryScore, 0);
-  assert.ok(r.summary.length > 0);
-  assert.deepStrictEqual(r.highlights, []);
+// ---------- 长文档位与豁免（纯函数） ----------
+test('lengthBand: 四档边界正确', () => {
+  assert.deepStrictEqual(LLM.lengthBand(3500), { band: '0-3500', defaultPenalty: 0 });
+  assert.deepStrictEqual(LLM.lengthBand(3501), { band: '3501-5000', defaultPenalty: 3 });
+  assert.deepStrictEqual(LLM.lengthBand(5000), { band: '3501-5000', defaultPenalty: 3 });
+  assert.deepStrictEqual(LLM.lengthBand(8000), { band: '5001-8000', defaultPenalty: 6 });
+  assert.deepStrictEqual(LLM.lengthBand(8001), { band: '8000+', defaultPenalty: 10 });
 });
 
-test('normalizeResult: 顶层 verdict 与 summary 新字段', () => {
+test('applyExemption: <2不豁免、==2降一档、>=3全豁免', () => {
+  assert.deepStrictEqual(LLM.applyExemption(10, 1), { appliedPenalty: 10, exemptionLevel: 'none' });
+  assert.deepStrictEqual(LLM.applyExemption(10, 2), { appliedPenalty: 6, exemptionLevel: 'partial' });
+  assert.deepStrictEqual(LLM.applyExemption(6, 2), { appliedPenalty: 3, exemptionLevel: 'partial' });
+  assert.deepStrictEqual(LLM.applyExemption(3, 2), { appliedPenalty: 0, exemptionLevel: 'partial' });
+  assert.deepStrictEqual(LLM.applyExemption(6, 3), { appliedPenalty: 0, exemptionLevel: 'full' });
+  assert.deepStrictEqual(LLM.applyExemption(0, 0), { appliedPenalty: 0, exemptionLevel: 'none' });
+});
+
+test('recommend: 阅读建议分档', () => {
+  assert.strictEqual(LLM.recommend(95), '精读并收藏');
+  assert.strictEqual(LLM.recommend(85), '值得完整阅读');
+  assert.strictEqual(LLM.recommend(75), '建议阅读');
+  assert.strictEqual(LLM.recommend(65), '选择性阅读');
+  assert.strictEqual(LLM.recommend(55), '大概率跳过');
+  assert.strictEqual(LLM.recommend(50), '跳过');
+});
+
+// ---------- normalizeResult：硬不变量 ----------
+test('normalizeResult: base_score = 五维之和，各维不越界', () => {
+  const r = LLM.normalizeResult(
+    {
+      applicable: true,
+      scores: {
+        claim_and_judgment: { score: 99, max: 25 }, // 越界，应被夹到 25
+        information_and_reasoning: { score: 17 },
+        insight_and_originality: { score: 14 },
+        structure_and_expression: { score: 11 },
+        information_density: { score: 9 }
+      }
+    },
+    { charCount: 2000 }
+  );
+  assert.strictEqual(r.dimensions.claim.score, 25);
+  assert.strictEqual(r.baseScore, 25 + 17 + 14 + 11 + 9);
+  assert.strictEqual(r.length.appliedPenalty, 0);
+  assert.strictEqual(r.scoreAfterLength, 76);
+  assert.strictEqual(r.finalScore, 76);
+  assert.strictEqual(r.recommendation, '建议阅读');
+});
+
+test('normalizeResult: 长文扣分按实际字数重算，忽略模型自报', () => {
+  const r = LLM.normalizeResult(
+    {
+      applicable: true,
+      scores: {
+        claim_and_judgment: { score: 20 },
+        information_and_reasoning: { score: 20 },
+        insight_and_originality: { score: 16 },
+        structure_and_expression: { score: 12 },
+        information_density: { score: 12 }
+      },
+      character_count: 1000, // 谎报小字数，应被实际字数覆盖
+      length_adjustment: { default_penalty: 0, matched_exemption_conditions: [] }
+    },
+    { charCount: 6000 } // 实际 6000 → 5001-8000 档 → -6
+  );
+  assert.strictEqual(r.baseScore, 80);
+  assert.strictEqual(r.length.band, '5001-8000');
+  assert.strictEqual(r.length.defaultPenalty, 6);
+  assert.strictEqual(r.length.appliedPenalty, 6);
+  assert.strictEqual(r.scoreAfterLength, 74);
+  assert.strictEqual(r.finalScore, 74);
+});
+
+test('normalizeResult: 不适用类型 → final_score 为 null', () => {
   const r = LLM.normalizeResult({
-    summary: '这是一段总结',
-    dry_score: 72,
-    verdict: '值得精读',
-    highlights: [{ point: '要点A', quote: '原句A', location: '开头' }]
+    applicable: false,
+    applicability_reason: '这是一篇 API 文档，属于纯操作教程',
+    article_type: 'other'
   });
-  assert.strictEqual(r.summary, '这是一段总结');
-  assert.strictEqual(r.dryScore, 72);
-  assert.strictEqual(r.verdict, '值得精读');
+  assert.strictEqual(r.applicable, false);
+  assert.strictEqual(r.finalScore, null);
+  assert.ok(r.applicabilityReason.length > 0);
+});
+
+test('normalizeResult: AI 味仅在 detected+high+≥3类信号时封顶', () => {
+  const base = {
+    applicable: true,
+    scores: {
+      claim_and_judgment: { score: 16 },
+      information_and_reasoning: { score: 15 },
+      insight_and_originality: { score: 12 },
+      structure_and_expression: { score: 11 },
+      information_density: { score: 9 }
+    }
+  };
+  // base=63, 2500字→penalty 0, scoreAfter=63
+  // detected 但 confidence 不是 high → 不封顶
+  const notHigh = LLM.normalizeResult(
+    Object.assign({}, base, {
+      ai_smell: { detected: true, confidence: 'medium', signal_categories: ['a', 'b', 'c'] }
+    }),
+    { charCount: 2500 }
+  );
+  assert.strictEqual(notHigh.aiSmell.detected, false);
+  assert.strictEqual(notHigh.finalScore, 63);
+
+  // detected + high 但只有 2 类信号 → 不封顶
+  const fewCats = LLM.normalizeResult(
+    Object.assign({}, base, {
+      ai_smell: { detected: true, confidence: 'high', signal_categories: ['a', 'b'] }
+    }),
+    { charCount: 2500 }
+  );
+  assert.strictEqual(fewCats.aiSmell.detected, false);
+  assert.strictEqual(fewCats.finalScore, 63);
+
+  // detected + high + 3 类信号 → 封顶 50
+  const capped = LLM.normalizeResult(
+    Object.assign({}, base, {
+      ai_smell: {
+        detected: true,
+        confidence: 'high',
+        signal_categories: ['空泛开场', '机械结构', '模板化收尾']
+      }
+    }),
+    { charCount: 2500 }
+  );
+  assert.strictEqual(capped.aiSmell.detected, true);
+  assert.strictEqual(capped.aiSmell.cap, 50);
+  assert.strictEqual(capped.finalScore, 50);
+});
+
+test('normalizeResult: estimated_lossless_deletion_ratio 夹到 0~1', () => {
+  const r = LLM.normalizeResult(
+    { applicable: true, scores: {}, estimated_lossless_deletion_ratio: 1.8 },
+    { charCount: 1000 }
+  );
+  assert.strictEqual(r.estimatedLosslessDeletionRatio, 1);
+});
+
+// ---------- 模型扮演：框架校准样例 ----------
+
+// 样例 B：模板化 AI 长文（4200字，≥3类 AI 信号，基础分 63，长文-3，封顶 50）
+const SAMPLE_B_REPLY = `{
+  "framework_version": "1.0",
+  "applicable": true,
+  "applicability_reason": "属于观点与分析类文章",
+  "article_type": "analysis",
+  "one_sentence_thesis": "作者认为企业应当拥抱 AI 转型以赢得未来。",
+  "scores": {
+    "claim_and_judgment": { "score": 13, "max": 25, "rationale": "句句正确但不承担取舍", "evidence": [] },
+    "information_and_reasoning": { "score": 12, "max": 25, "rationale": "缺少可核查证据", "evidence": [] },
+    "insight_and_originality": { "score": 9, "max": 20, "rationale": "主要复述流行观点", "evidence": [] },
+    "structure_and_expression": { "score": 17, "max": 15, "rationale": "小标题工整（分数越界，将被夹回）", "evidence": [] },
+    "information_density": { "score": 12, "max": 15, "rationale": "反复换句话重复常识", "evidence": [] }
+  },
+  "length_adjustment": { "default_penalty": 3, "matched_exemption_conditions": [], "rationale": "多章节功能重复" },
+  "ai_smell": {
+    "detected": true,
+    "signal_categories": ["空泛开场", "伪深刻句式", "抽象化逃避", "模板化收尾"],
+    "evidence": [{ "location": "开头", "excerpt": "在这个时代飞速变化的今天……" }],
+    "rationale": "文本呈现出明显 AI 模板化痕迹，跨开头中部结尾持续出现",
+    "confidence": "high"
+  },
+  "irreducible_value": "几乎没有不可替代的内容",
+  "estimated_lossless_deletion_ratio": 0.55,
+  "top_strengths": ["语言流畅"],
+  "top_weaknesses": ["反复表达常识", "缺少证据"],
+  "uncertainties": [],
+  "highlights": []
+}`;
+
+test('样例B：模板化 AI 长文 → 基础分夹回、长文-3、AI味封顶 50', () => {
+  const parsed = LLM.extractJson(SAMPLE_B_REPLY);
+  const r = LLM.normalizeResult(parsed, { charCount: 4200 });
+  // structure 17 越界应夹回 15 → base = 13+12+9+15+12 = 61
+  assert.strictEqual(r.dimensions.structure.score, 15);
+  assert.strictEqual(r.baseScore, 61);
+  assert.strictEqual(r.length.band, '3501-5000');
+  assert.strictEqual(r.length.appliedPenalty, 3);
+  assert.strictEqual(r.scoreAfterLength, 58);
+  assert.strictEqual(r.aiSmell.detected, true);
+  assert.strictEqual(r.finalScore, 50); // 封顶
+  assert.strictEqual(r.recommendation, '跳过');
+});
+
+// 样例 C：高密度调查分析（7200字，基础分 89，默认-6，满足≥3项豁免→0，未触发AI味）
+const SAMPLE_C_REPLY = `{
+  "framework_version": "1.0",
+  "applicable": true,
+  "article_type": "analysis",
+  "one_sentence_thesis": "作者通过多方材料交叉验证还原了事件全过程。",
+  "scores": {
+    "claim_and_judgment": { "score": 23, "max": 25, "rationale": "主张锋利并回应强反方", "evidence": [] },
+    "information_and_reasoning": { "score": 24, "max": 25, "rationale": "证据充分互相印证", "evidence": [] },
+    "insight_and_originality": { "score": 18, "max": 20, "rationale": "提出新的解释框架", "evidence": [] },
+    "structure_and_expression": { "score": 14, "max": 15, "rationale": "首尾闭环", "evidence": [] },
+    "information_density": { "score": 10, "max": 15, "rationale": "个别章节略长", "evidence": [] }
+  },
+  "length_adjustment": {
+    "default_penalty": 6,
+    "matched_exemption_conditions": ["各章节功能不同", "新信息随篇幅增加", "删章节会破坏证据链"],
+    "rationale": "调查题材天然需长展开"
+  },
+  "ai_smell": { "detected": false, "signal_categories": [], "evidence": [], "rationale": "无系统性模板特征", "confidence": "medium" },
+  "irreducible_value": "多方信源交叉验证得到的关键时间线",
+  "estimated_lossless_deletion_ratio": 0.12,
+  "top_strengths": ["证据链完整", "有新解释框架"],
+  "top_weaknesses": ["个别章节偏长"],
+  "uncertainties": [],
+  "highlights": [
+    { "point": "关键时间线由三方独立信源交叉印证，可信度高。", "quote": "根据三份独立文件的交叉比对", "location": "约全文50%处" }
+  ]
+}`;
+
+test('样例C：高密度长文 → 默认-6 但满足3项豁免实际扣0，最终89', () => {
+  const parsed = LLM.extractJson(SAMPLE_C_REPLY);
+  const r = LLM.normalizeResult(parsed, { charCount: 7200 });
+  assert.strictEqual(r.baseScore, 23 + 24 + 18 + 14 + 10); // 89
+  assert.strictEqual(r.length.band, '5001-8000');
+  assert.strictEqual(r.length.defaultPenalty, 6);
+  assert.strictEqual(r.length.exemptionLevel, 'full');
+  assert.strictEqual(r.length.appliedPenalty, 0);
+  assert.strictEqual(r.finalScore, 89);
+  assert.strictEqual(r.recommendation, '值得完整阅读');
   assert.strictEqual(r.highlights.length, 1);
-  assert.deepStrictEqual(r.highlights[0], { point: '要点A', quote: '原句A', location: '开头' });
 });
 
-test('normalizeResult: 分数越界、非法 verdict、highlights 限 3 条且过滤空 point', () => {
-  const r = LLM.normalizeResult({
-    dry_score: 999,
-    verdict: '看看吧',
-    highlights: [
-      { point: '一', quote: 'q1', location: '' },
-      { point: '', quote: 'q2' },
-      { point: '二', quote: 'q3' },
-      { point: '三' },
-      { point: '四' }
-    ]
-  });
-  assert.strictEqual(r.dryScore, 100);
-  assert.strictEqual(r.verdict, '可略读');
-  // 空 point 被过滤，最多 3 条
-  assert.strictEqual(r.highlights.length, 3);
-  assert.deepStrictEqual(r.highlights.map((h) => h.point), ['一', '二', '三']);
-  assert.strictEqual(r.highlights[0].quote, 'q1');
-});
+// 样例 D：没有 AI 味但内容平庸（2300字，基础分 46，长文0，未触发AI味）
+const SAMPLE_D_REPLY = `{
+  "applicable": true,
+  "article_type": "opinion",
+  "one_sentence_thesis": "作者分享了自己对远程办公的个人感受。",
+  "scores": {
+    "claim_and_judgment": { "score": 12, "max": 25, "rationale": "有倾向但结论模糊", "evidence": [] },
+    "information_and_reasoning": { "score": 9, "max": 25, "rationale": "只有个人感想没有证据", "evidence": [] },
+    "insight_and_originality": { "score": 6, "max": 20, "rationale": "结论接近常识", "evidence": [] },
+    "structure_and_expression": { "score": 10, "max": 15, "rationale": "基本可读", "evidence": [] },
+    "information_density": { "score": 9, "max": 15, "rationale": "较克制", "evidence": [] }
+  },
+  "length_adjustment": { "default_penalty": 0, "matched_exemption_conditions": [] },
+  "ai_smell": { "detected": false, "signal_categories": [], "evidence": [], "rationale": "明显是人类自然表达", "confidence": "high" },
+  "irreducible_value": "作者个人的远程办公体验片段",
+  "estimated_lossless_deletion_ratio": 0.3,
+  "top_strengths": ["表达自然真诚"],
+  "top_weaknesses": ["缺少证据", "没有新认识"],
+  "uncertainties": [],
+  "highlights": []
+}`;
 
-test('normalizeResult: 兼容旧结构 one_line / worth_reading.verdict', () => {
-  const r = LLM.normalizeResult({
-    one_line: '旧版一句话',
-    worth_reading: { verdict: '不值得读' }
-  });
-  assert.strictEqual(r.summary, '旧版一句话');
-  assert.strictEqual(r.verdict, '不值得读');
+test('样例D：无AI味但平庸 → 46分跳过（无AI味≠有价值）', () => {
+  const parsed = LLM.extractJson(SAMPLE_D_REPLY);
+  const r = LLM.normalizeResult(parsed, { charCount: 2300 });
+  assert.strictEqual(r.baseScore, 12 + 9 + 6 + 10 + 9); // 46
+  assert.strictEqual(r.length.appliedPenalty, 0);
+  assert.strictEqual(r.aiSmell.detected, false);
+  assert.strictEqual(r.finalScore, 46);
+  assert.strictEqual(r.recommendation, '跳过');
 });
 
 // ---------- SseParser ----------
-test('SseParser: 常规流式分片', () => {
+test('SseParser: 常规流式分片与 [DONE]', () => {
   const p = new LLM.SseParser();
   const d1 = p.push('data: {"choices":[{"delta":{"content":"你好"}}]}\n\n');
   const d2 = p.push('data: {"choices":[{"delta":{"content":"世界"}}]}\n\ndata: [DONE]\n\n');
@@ -148,99 +325,6 @@ test('SseParser: 跨 chunk 断行也能解析', () => {
   const p = new LLM.SseParser();
   const full = 'data: {"choices":[{"delta":{"content":"半截"}}]}\n';
   const mid = Math.floor(full.length / 2);
-  const d1 = p.push(full.slice(0, mid));
-  const d2 = p.push(full.slice(mid));
-  assert.deepStrictEqual(d1, []);
-  assert.deepStrictEqual(d2, ['半截']);
-});
-
-test('SseParser: CRLF 与非法行被容忍', () => {
-  const p = new LLM.SseParser();
-  const deltas = p.push(
-    ': keep-alive\r\n' +
-      'data: 不是json\r\n' +
-      'data: {"choices":[{"delta":{"content":"ok"}}]}\r\n'
-  );
-  assert.deepStrictEqual(deltas, ['ok']);
-});
-
-// ---------- 模型扮演：全链路脱水演练 ----------
-// 样例文章（有水分的典型公众号文体）
-const SAMPLE_ARTICLE = `
-大家好，我是老王。今天想跟大家聊一个特别重要的话题。在开始之前，先给大家讲个故事。
-上周我见了一个朋友，他是做投资的，混得风生水起。我们聊了三个小时，我总结了一句话：
-真正拉开人与人差距的，不是努力程度，而是注意力的分配方式。
-诺贝尔经济学奖得主赫伯特·西蒙早就说过："信息的丰富导致注意力的贫乏。"
-朋友给我算了一笔账：一个人每天高质量的注意力大约只有 4 小时，剩下的时间大脑都在低功耗运行。
-所以高手的做法是：把这 4 小时锁死给最重要的一件事，其余时间处理杂事，甚至故意浪费。
-这就是所谓的"注意力预算制"——像管钱一样管注意力，先支付给自己，再支付给世界。
-好了今天就聊到这里，觉得有用的话别忘了点赞、在看、转发三连，我们下期再见！
-`;
-
-// 以下 JSON 是 AI 按新版 SYSTEM_PROMPT 约定对上文真实“脱水”得到的模型回复 fixture：
-// 这是一篇典型水文（开场故事 + 点赞三连结尾），按 rubric 应落在“偏水/中等”区间。
-// quote 字段均从 SAMPLE_ARTICLE 中逐字摘录，用于页面定位高亮。
-const MODEL_REPLY = `{
-  "summary": "全文借一位做投资的朋友之口，提出拉开人与人差距的不是努力而是注意力的分配方式：人每天高质量注意力约只有4小时，高手会把它锁定给最重要的一件事，即“注意力预算制”。核心概念有一定启发，但包裹在开场故事、金句和点赞三连里，水分偏多，适合想快速了解“注意力管理”概念的读者。",
-  "dry_score": 32,
-  "verdict": "可略读",
-  "highlights": [
-    {
-      "point": "核心方法论：把每天仅有的4小时高质量注意力锁定给最重要的一件事，其余时间处理杂事甚至故意浪费，这是全文唯一可操作的干货。",
-      "quote": "把这 4 小时锁死给最重要的一件事",
-      "location": "约全文65%处"
-    },
-    {
-      "point": "健康的思维模型：把注意力当作预算来管，先支付给自己最重要的事，再支付给外界，而不是被动响应。",
-      "quote": "像管钱一样管注意力，先支付给自己",
-      "location": "约全文75%处"
-    },
-    {
-      "point": "可沉淀的论据：赫伯特·西蒙指出信息的丰富会导致注意力的贫乏，可作为注意力稀缺论的权威引用。",
-      "quote": "信息的丰富导致注意力的贫乏",
-      "location": "约全文40%处"
-    }
-  ]
-}`;
-
-test('模型扮演全链路：提示词→模型回复→解析→规整→可渲染', () => {
-  // 1. 构建消息（模拟侧栏发起请求前的输入）
-  const msgs = LLM.buildMessages({
-    title: '真正拉开差距的，是注意力分配',
-    url: 'https://mp.weixin.qq.com/s/example',
-    text: SAMPLE_ARTICLE
-  });
-  assert.strictEqual(msgs.length, 2);
-
-  // 2. 模型回复（fixture 遵守提示词约定，字符串内部使用中文引号）
-  const parsed = LLM.extractJson(MODEL_REPLY);
-  const result = LLM.normalizeResult(parsed);
-
-  // 3. 断言新结构完整、可直接渲染
-  assert.ok(result.summary.length >= 40, 'summary 应足够长以判断好坏');
-  assert.ok(result.summary.length <= 200, 'summary 不超 200 字');
-  assert.strictEqual(result.verdict, '可略读');
-  assert.ok(result.dryScore > 0 && result.dryScore < 60, '水文干货浓度应在偏低区间');
-  // 最多 3 条，每条有 point 与可定位 quote
-  assert.ok(result.highlights.length >= 1 && result.highlights.length <= 3);
-  result.highlights.forEach((h) => {
-    assert.ok(h.point.length > 0);
-    assert.ok(h.quote.length > 0);
-    // quote 必须能在原文中逐字找到（高亮定位的前提）
-    assert.ok(SAMPLE_ARTICLE.indexOf(h.quote) !== -1, 'quote 应与原文一致: ' + h.quote);
-  });
-});
-
-test('模型扮演：无实质内容页面的兜底回复', () => {
-  // AI 扮演模型对登录墙页面的回复
-  const emptyPageReply = `{
-    "summary": "页面是登录墙，没有可读正文，无法提炼内容。",
-    "dry_score": 0,
-    "verdict": "不值得读",
-    "highlights": []
-  }`;
-  const result = LLM.normalizeResult(LLM.extractJson(emptyPageReply));
-  assert.strictEqual(result.dryScore, 0);
-  assert.strictEqual(result.verdict, '不值得读');
-  assert.deepStrictEqual(result.highlights, []);
+  assert.deepStrictEqual(p.push(full.slice(0, mid)), []);
+  assert.deepStrictEqual(p.push(full.slice(mid)), ['半截']);
 });

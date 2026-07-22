@@ -29,10 +29,26 @@
     stateWelcome: $('state-welcome'),
     btnWelcomeSettings: $('btn-welcome-settings'),
     stateResult: $('state-result'),
+    secNotApplicable: $('sec-not-applicable'),
+    naReason: $('na-reason'),
+    secScore: $('sec-score'),
     scoreRing: $('score-ring'),
     scoreNum: $('score-num'),
     verdictBadge: $('verdict-badge'),
-    summary: $('summary'),
+    thesis: $('thesis'),
+    secAiCap: $('sec-ai-cap'),
+    aiCapCats: $('ai-cap-cats'),
+    secVerdictDetail: $('sec-verdict-detail'),
+    kvIrreducible: $('kv-irreducible'),
+    irreducible: $('irreducible'),
+    kvDeletion: $('kv-deletion'),
+    deletionRatio: $('deletion-ratio'),
+    strengths: $('strengths'),
+    weaknesses: $('weaknesses'),
+    secDims: $('sec-dims'),
+    dimList: $('dim-list'),
+    lengthPenalty: $('length-penalty'),
+    lengthRationale: $('length-rationale'),
     secHighlights: $('sec-highlights'),
     listHighlights: $('list-highlights'),
     highlightsEmpty: $('highlights-empty'),
@@ -325,19 +341,142 @@
   }
 
   // ---------- 渲染结果 ----------
-  var VERDICT_CLASS = {
-    值得精读: 'good',
-    可略读: 'mid',
-    不值得读: 'bad'
-  };
+  var DIM_META = [
+    { key: 'claim', name: '主张与判断' },
+    { key: 'info', name: '信息与论证' },
+    { key: 'insight', name: '洞见与原创性' },
+    { key: 'structure', name: '结构与表达' },
+    { key: 'density', name: '信息密度' }
+  ];
+
+  function scoreClass(score) {
+    if (score >= 80) return 'good';
+    if (score >= 60) return 'mid';
+    return 'bad';
+  }
+
+  function renderChips(container, items, cls, prefix) {
+    container.textContent = '';
+    if (!items || !items.length) {
+      hide(container);
+      return;
+    }
+    show(container);
+    items.forEach(function (t) {
+      var span = document.createElement('span');
+      span.className = 'chip ' + cls;
+      span.textContent = (prefix || '') + t;
+      container.appendChild(span);
+    });
+  }
+
+  function renderDimensions(dims) {
+    el.dimList.textContent = '';
+    DIM_META.forEach(function (m) {
+      var d = dims[m.key];
+      if (!d) return;
+      var item = document.createElement('div');
+      item.className = 'dim-item';
+
+      var row = document.createElement('div');
+      row.className = 'dim-row';
+      var name = document.createElement('span');
+      name.className = 'dim-name';
+      name.textContent = m.name;
+      var sc = document.createElement('span');
+      sc.className = 'dim-score';
+      sc.textContent = d.score + '/' + d.max;
+      row.appendChild(name);
+      row.appendChild(sc);
+
+      var bar = document.createElement('div');
+      bar.className = 'dim-bar';
+      var fill = document.createElement('div');
+      fill.className = 'dim-bar-fill';
+      fill.style.width = (d.max ? Math.round((d.score / d.max) * 100) : 0) + '%';
+      bar.appendChild(fill);
+
+      item.appendChild(row);
+      item.appendChild(bar);
+      if (d.rationale) {
+        var r = document.createElement('p');
+        r.className = 'dim-rationale';
+        r.textContent = d.rationale;
+        item.appendChild(r);
+      }
+      el.dimList.appendChild(item);
+    });
+  }
 
   function renderResult(result) {
     lastResult = result;
-    el.scoreRing.style.setProperty('--pct', String(result.dryScore));
-    el.scoreNum.textContent = String(result.dryScore);
-    el.verdictBadge.textContent = result.verdict;
-    el.verdictBadge.className = 'verdict-badge ' + (VERDICT_CLASS[result.verdict] || 'mid');
-    el.summary.textContent = result.summary;
+
+    // 不适用：只显示不适用卡片
+    if (!result.applicable) {
+      show(el.secNotApplicable);
+      el.naReason.textContent = result.applicabilityReason || '文章类型不适用本评分框架';
+      hide(el.secScore);
+      hide(el.secAiCap);
+      hide(el.secVerdictDetail);
+      hide(el.secDims);
+      renderHighlights(result.highlights);
+      setMainState('result');
+      return;
+    }
+    hide(el.secNotApplicable);
+    show(el.secScore);
+    show(el.secVerdictDetail);
+    show(el.secDims);
+
+    var score = result.finalScore;
+    el.scoreRing.style.setProperty('--pct', String(score));
+    el.scoreNum.textContent = String(score);
+    el.verdictBadge.textContent = result.recommendation;
+    el.verdictBadge.className = 'verdict-badge ' + scoreClass(score);
+    el.thesis.textContent = '一句话主张：' + result.oneSentenceThesis;
+
+    // AI 味封顶
+    if (result.aiSmell && result.aiSmell.detected) {
+      show(el.secAiCap);
+      el.aiCapCats.textContent = '';
+      result.aiSmell.signalCategories.forEach(function (c) {
+        var li = document.createElement('li');
+        li.textContent = c;
+        el.aiCapCats.appendChild(li);
+      });
+    } else {
+      hide(el.secAiCap);
+    }
+
+    // 关键结论
+    if (result.irreducibleValue) {
+      show(el.kvIrreducible);
+      el.irreducible.textContent = result.irreducibleValue;
+    } else {
+      hide(el.kvIrreducible);
+    }
+    if (result.estimatedLosslessDeletionRatio != null) {
+      show(el.kvDeletion);
+      el.deletionRatio.textContent = Math.round(result.estimatedLosslessDeletionRatio * 100) + '%';
+    } else {
+      hide(el.kvDeletion);
+    }
+    renderChips(el.strengths, result.topStrengths, 'good', '✓ ');
+    renderChips(el.weaknesses, result.topWeaknesses, 'bad', '! ');
+
+    // 五维明细 + 长文扣分
+    renderDimensions(result.dimensions);
+    var pen = result.length ? result.length.appliedPenalty : 0;
+    el.lengthPenalty.textContent = pen > 0 ? '-' + pen : '0';
+    var lr = [];
+    if (result.length) {
+      lr.push('正文约 ' + result.characterCount + ' 字（' + result.length.band + '）');
+      if (result.length.exemptionLevel === 'full') lr.push('满足≥3项豁免，实际扣分 0');
+      else if (result.length.exemptionLevel === 'partial') lr.push('满足2项豁免，扣分降一档');
+      if (result.length.rationale) lr.push(result.length.rationale);
+    }
+    el.lengthRationale.textContent = lr.join('；');
+
     renderHighlights(result.highlights);
     setMainState('result');
   }
@@ -347,8 +486,37 @@
     lines.push('# ' + ((page && page.title) || '未命名页面'));
     if (page && page.url) lines.push('> ' + page.url);
     lines.push('');
-    lines.push('**总结**：' + result.summary);
-    lines.push('**干货浓度**：' + result.dryScore + '/100 · ' + result.verdict);
+    if (!result.applicable) {
+      lines.push('**本评分框架不适用**：' + (result.applicabilityReason || ''));
+      return lines.join('\n');
+    }
+    lines.push('## ' + result.finalScore + ' / 100 · ' + result.recommendation);
+    lines.push('');
+    lines.push('**一句话主张**：' + result.oneSentenceThesis);
+    if (result.irreducibleValue) lines.push('**最值得读的部分**：' + result.irreducibleValue);
+    if (result.estimatedLosslessDeletionRatio != null) {
+      lines.push('**预计可无损删去**：' + Math.round(result.estimatedLosslessDeletionRatio * 100) + '%');
+    }
+    if (result.aiSmell && result.aiSmell.detected) {
+      lines.push('');
+      lines.push('> ⚠️ 检测到系统性 AI 模板化痕迹，总分封顶为 50（文本特征判断，不代表作者一定使用了 AI）。');
+      lines.push('> 信号类别：' + result.aiSmell.signalCategories.join('、'));
+    }
+    lines.push('');
+    lines.push('## 评分明细');
+    DIM_META.forEach(function (m) {
+      var d = result.dimensions[m.key];
+      if (!d) return;
+      lines.push('- ' + m.name + '：' + d.score + '/' + d.max + (d.rationale ? ' — ' + d.rationale : ''));
+    });
+    lines.push('- 长文扣分：' + (result.length && result.length.appliedPenalty ? '-' + result.length.appliedPenalty : '0'));
+    if (result.topStrengths && result.topStrengths.length) {
+      lines.push('');
+      lines.push('**主要亮点**：' + result.topStrengths.join('；'));
+    }
+    if (result.topWeaknesses && result.topWeaknesses.length) {
+      lines.push('**主要问题**：' + result.topWeaknesses.join('；'));
+    }
     if (result.highlights && result.highlights.length) {
       lines.push('');
       lines.push('## 精华');
@@ -548,7 +716,9 @@
       .then(function (content) {
         if (signal.aborted || content == null) return;
         var parsed = LLM.extractJson(content);
-        var result = LLM.normalizeResult(parsed);
+        // 传入实际提取正文字数，用于确定性重算长文档位
+        var charCount = pageRef && pageRef.text ? pageRef.text.length : 0;
+        var result = LLM.normalizeResult(parsed, { charCount: charCount });
         result._page = pageRef;
         renderResult(result);
       })
@@ -669,7 +839,7 @@
       .then(function () {
         el.btnCopy.textContent = '✓ 已复制为 Markdown';
         setTimeout(function () {
-          el.btnCopy.textContent = '复制精华';
+          el.btnCopy.textContent = '复制评分报告';
         }, 1500);
       })
       .catch(function () {

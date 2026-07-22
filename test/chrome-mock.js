@@ -12,28 +12,42 @@
     '这就是所谓的注意力预算制——像管钱一样管注意力，先支付给自己，再支付给世界。' +
     '好了今天就聊到这里，觉得有用的话别忘了点赞、在看、转发三连，我们下期再见！';
 
-  // AI 扮演模型、按新版 SYSTEM_PROMPT 产出的脱水结果（新结构）
+  // AI 扮演模型、按 100 分评分框架产出的结果（框架 JSON 结构）
+  // 这篇是典型水文（开场故事+点赞三连），人类自然表达故未触发 AI 味；基础分偏低。
   var MODEL_REPLY = JSON.stringify({
-    summary:
-      '全文借一位做投资的朋友之口，提出拉开人与人差距的不是努力而是注意力的分配方式：人每天高质量注意力约只有4小时，高手会把它锁定给最重要的一件事，即“注意力预算制”。核心概念有一定启发，但包裹在开场故事、金句和点赞三连里，水分偏多，适合想快速了解注意力管理概念的读者。',
-    dry_score: 32,
-    verdict: '可略读',
+    framework_version: '1.0',
+    applicable: true,
+    applicability_reason: '属于观点类文章',
+    article_type: 'opinion',
+    one_sentence_thesis: '作者主张拉开人与人差距的是注意力的分配方式，应把每天有限的高质量注意力优先给最重要的事。',
+    scores: {
+      claim_and_judgment: { score: 14, max: 25, rationale: '主张明确但未处理反方，结尾落在点赞三连而非行动闭环', evidence: [{ location: '中部', excerpt: '真正拉开人与人差距的，不是努力程度，而是注意力的分配方式' }] },
+      information_and_reasoning: { score: 10, max: 25, rationale: '仅有一位匿名朋友的口头账，缺少可核查证据', evidence: [] },
+      insight_and_originality: { score: 9, max: 20, rationale: '“注意力预算制”有一定启发，但接近流行观点', evidence: [] },
+      structure_and_expression: { score: 11, max: 15, rationale: '故事引入到概念的推进清楚', evidence: [] },
+      information_density: { score: 8, max: 15, rationale: '开场寒暄与结尾三连占据不少篇幅', evidence: [] }
+    },
+    length_adjustment: { default_penalty: 0, matched_exemption_conditions: [], rationale: '短文，无需长文扣分' },
+    ai_smell: { detected: false, signal_categories: [], evidence: [], rationale: '开场故事与口语化表达更像人类自然写作，未形成系统性模板', confidence: 'high' },
+    irreducible_value: '把注意力当预算、优先支付给最重要一件事的操作视角',
+    estimated_lossless_deletion_ratio: 0.4,
+    top_strengths: ['核心概念清晰'],
+    top_weaknesses: ['缺少证据', '开场与结尾注水'],
+    uncertainties: [],
     highlights: [
       {
         point:
-          '核心方法论：把每天仅有的4小时高质量注意力锁定给最重要的一件事，其余时间处理杂事甚至故意浪费，这是全文唯一可操作的干货。',
+          '核心方法论：把每天仅有的4小时高质量注意力锁定给最重要的一件事，其余时间处理杂事甚至故意浪费。',
         quote: '把这 4 小时锁死给最重要的一件事',
         location: '约全文65%处'
       },
       {
-        point:
-          '健康的思维模型：把注意力当作预算来管，先支付给自己最重要的事，再支付给外界，而不是被动响应。',
+        point: '健康的思维模型：把注意力当作预算来管，先支付给自己最重要的事，再支付给外界。',
         quote: '像管钱一样管注意力，先支付给自己',
         location: '约全文75%处'
       },
       {
-        point:
-          '可沉淀的论据：赫伯特·西蒙指出信息的丰富会导致注意力的贫乏，可作为注意力稀缺论的权威引用。',
+        point: '可沉淀的论据：赫伯特·西蒙指出信息的丰富会导致注意力的贫乏。',
         quote: '信息的丰富导致注意力的贫乏',
         location: '约全文40%处'
       }
