@@ -32,17 +32,10 @@
     scoreRing: $('score-ring'),
     scoreNum: $('score-num'),
     verdictBadge: $('verdict-badge'),
-    oneLine: $('one-line'),
-    secParts: $('sec-parts'),
-    listParts: $('list-parts'),
-    secEssence: $('sec-essence'),
-    listEssence: $('list-essence'),
-    secNovel: $('sec-novel'),
-    listNovel: $('list-novel'),
-    secInsights: $('sec-insights'),
-    listInsights: $('list-insights'),
-    secKnowledge: $('sec-knowledge'),
-    listKnowledge: $('list-knowledge'),
+    summary: $('summary'),
+    secHighlights: $('sec-highlights'),
+    listHighlights: $('list-highlights'),
+    highlightsEmpty: $('highlights-empty'),
     btnCopy: $('btn-copy'),
     inputBaseUrl: $('input-base-url'),
     inputApiKey: $('input-api-key'),
@@ -88,17 +81,52 @@
     );
   }
 
-  function renderList(listEl, sectionEl, items) {
-    listEl.textContent = '';
+  function renderHighlights(items) {
+    el.listHighlights.textContent = '';
     if (!items || !items.length) {
-      hide(sectionEl);
+      hide(el.listHighlights);
+      show(el.highlightsEmpty);
       return;
     }
-    show(sectionEl);
-    items.forEach(function (text) {
-      var li = document.createElement('li');
-      li.textContent = text; // textContent 防注入
-      listEl.appendChild(li);
+    hide(el.highlightsEmpty);
+    show(el.listHighlights);
+    items.forEach(function (h, idx) {
+      var item = document.createElement('div');
+      item.className = 'highlight-item';
+
+      var point = document.createElement('div');
+      point.className = 'highlight-point';
+      var num = document.createElement('span');
+      num.className = 'highlight-index';
+      num.textContent = idx + 1 + '.';
+      point.appendChild(num);
+      point.appendChild(document.createTextNode(h.point)); // textContent 防注入
+
+      var meta = document.createElement('div');
+      meta.className = 'highlight-meta';
+      if (h.location) {
+        var loc = document.createElement('span');
+        loc.className = 'highlight-location';
+        loc.textContent = h.location;
+        meta.appendChild(loc);
+      }
+      var goto = document.createElement('span');
+      goto.className = 'highlight-goto';
+      goto.textContent = h.quote ? '点击定位 →' : '（无可定位原句）';
+      meta.appendChild(goto);
+
+      item.appendChild(point);
+      item.appendChild(meta);
+
+      if (h.quote) {
+        item.addEventListener('click', function () {
+          navigateToQuote(h.quote, item, goto);
+        });
+      } else {
+        item.style.cursor = 'default';
+      }
+
+      el.listHighlights.appendChild(item);
     });
   }
 
@@ -309,12 +337,8 @@
     el.scoreNum.textContent = String(result.dryScore);
     el.verdictBadge.textContent = result.verdict;
     el.verdictBadge.className = 'verdict-badge ' + (VERDICT_CLASS[result.verdict] || 'mid');
-    el.oneLine.textContent = result.oneLine;
-    renderList(el.listParts, el.secParts, result.parts);
-    renderList(el.listEssence, el.secEssence, result.essence);
-    renderList(el.listNovel, el.secNovel, result.novel);
-    renderList(el.listInsights, el.secInsights, result.insights);
-    renderList(el.listKnowledge, el.secKnowledge, result.knowledge);
+    el.summary.textContent = result.summary;
+    renderHighlights(result.highlights);
     setMainState('result');
   }
 
@@ -323,22 +347,160 @@
     lines.push('# ' + ((page && page.title) || '未命名页面'));
     if (page && page.url) lines.push('> ' + page.url);
     lines.push('');
-    lines.push('**一句话总结**：' + result.oneLine);
+    lines.push('**总结**：' + result.summary);
     lines.push('**干货浓度**：' + result.dryScore + '/100 · ' + result.verdict);
-    function section(title, items) {
-      if (!items || !items.length) return;
+    if (result.highlights && result.highlights.length) {
       lines.push('');
-      lines.push('## ' + title);
-      items.forEach(function (t) {
-        lines.push('- ' + t);
+      lines.push('## 精华');
+      result.highlights.forEach(function (h, i) {
+        lines.push('');
+        lines.push((i + 1) + '. ' + h.point + (h.location ? '（' + h.location + '）' : ''));
+        if (h.quote) lines.push('   > ' + h.quote);
       });
     }
-    section('值得读的部分', result.parts);
-    section('最精华的观点', result.essence);
-    section('最新奇的观点', result.novel);
-    section('启发', result.insights);
-    section('可沉淀的知识', result.knowledge);
     return lines.join('\n');
+  }
+
+  // ---------- 点击定位：在原网页中高亮并滚动到 quote ----------
+  // 注入到页面执行的函数，必须自包含（只能访问 document / NodeFilter 等页面全局）。
+  function pageHighlighter(rawQuote) {
+    try {
+      var STYLE_ID = 'dryread-hl-style';
+      if (!document.getElementById(STYLE_ID)) {
+        var st = document.createElement('style');
+        st.id = STYLE_ID;
+        st.textContent =
+          '.dryread-hl{background:rgba(245,179,1,.4);border-radius:2px;text-shadow:0 0 6px rgba(245,179,1,.55);}' +
+          '.dryread-hl-flash{animation:dryreadFlash 1.4s ease;}' +
+          '@keyframes dryreadFlash{0%{background:rgba(245,179,1,.9);}100%{background:rgba(245,179,1,.4);}}';
+        document.head.appendChild(st);
+      }
+      // 清除旧高亮
+      var olds = document.querySelectorAll('mark.dryread-hl');
+      for (var oi = 0; oi < olds.length; oi++) {
+        var m0 = olds[oi];
+        var pp = m0.parentNode;
+        if (!pp) continue;
+        while (m0.firstChild) pp.insertBefore(m0.firstChild, m0);
+        pp.removeChild(m0);
+        pp.normalize();
+      }
+
+      var quoteNorm = String(rawQuote || '').replace(/\s+/g, '');
+      if (quoteNorm.length < 4) return { ok: false, reason: 'quote too short' };
+
+      // 收集可见文本节点
+      var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+      var nodes = [];
+      var n;
+      while ((n = walker.nextNode())) {
+        var par = n.parentElement;
+        if (!par) continue;
+        var tag = par.tagName;
+        if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'TEXTAREA') continue;
+        if (!n.nodeValue) continue;
+        nodes.push(n);
+      }
+      // 构建去空白拼接串 + 映射（normIndex -> 节点与局部偏移）
+      var norm = '';
+      var mapNode = [];
+      var mapOff = [];
+      for (var i = 0; i < nodes.length; i++) {
+        var v = nodes[i].nodeValue;
+        for (var j = 0; j < v.length; j++) {
+          var ch = v[j];
+          if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' || ch === '\u00a0' || ch === '\u3000') continue;
+          norm += ch;
+          mapNode.push(i);
+          mapOff.push(j);
+        }
+      }
+      var pos = norm.indexOf(quoteNorm);
+      var matchLen = quoteNorm.length;
+      if (pos === -1) {
+        // 回退：用前 16 字探针匹配（容忍模型摘录尾部偏差）
+        var probe = quoteNorm.slice(0, Math.min(16, quoteNorm.length));
+        pos = norm.indexOf(probe);
+        if (pos === -1) return { ok: false, reason: 'not found' };
+        matchLen = probe.length;
+      }
+      var endPos = pos + matchLen - 1;
+
+      // 按节点聚合区间
+      var perNode = {};
+      var order = [];
+      for (var k = pos; k <= endPos; k++) {
+        var ni = mapNode[k];
+        var off = mapOff[k];
+        if (perNode[ni] === undefined) {
+          perNode[ni] = [off, off];
+          order.push(ni);
+        } else {
+          if (off < perNode[ni][0]) perNode[ni][0] = off;
+          if (off > perNode[ni][1]) perNode[ni][1] = off;
+        }
+      }
+      var firstMark = null;
+      for (var oi2 = 0; oi2 < order.length; oi2++) {
+        var idx = order[oi2];
+        var node = nodes[idx];
+        var rng = document.createRange();
+        try {
+          rng.setStart(node, perNode[idx][0]);
+          rng.setEnd(node, perNode[idx][1] + 1);
+          var mark = document.createElement('mark');
+          mark.className = 'dryread-hl dryread-hl-flash';
+          rng.surroundContents(mark);
+          if (!firstMark) firstMark = mark;
+        } catch (e) {
+          /* 该节点范围无法包裹，跳过 */
+        }
+      }
+      if (!firstMark) return { ok: false, reason: 'wrap failed' };
+      firstMark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, reason: String((e && e.message) || e) };
+    }
+  }
+
+  function navigateToQuote(quote, itemEl, gotoEl) {
+    var ORIG = '点击定位 →';
+    if (!analyzedTab || !analyzedTab.id) {
+      itemEl.classList.add('nav-fail');
+      gotoEl.textContent = '页面已关闭';
+      return;
+    }
+    gotoEl.textContent = '定位中…';
+    itemEl.classList.remove('nav-fail');
+    // 把被分析的页签切到前台，确保滚动可见
+    chrome.tabs.update(analyzedTab.id, { active: true }).catch(function () {});
+    chrome.scripting
+      .executeScript({ target: { tabId: analyzedTab.id }, func: pageHighlighter, args: [quote] })
+      .then(function (results) {
+        var r = results && results[0] && results[0].result;
+        if (r && r.ok) {
+          gotoEl.textContent = '已定位 ✓';
+          setTimeout(function () {
+            gotoEl.textContent = ORIG;
+          }, 1500);
+        } else {
+          itemEl.classList.add('nav-fail');
+          gotoEl.textContent = '未找到原句';
+          setTimeout(function () {
+            gotoEl.textContent = ORIG;
+            itemEl.classList.remove('nav-fail');
+          }, 2500);
+        }
+      })
+      .catch(function () {
+        itemEl.classList.add('nav-fail');
+        gotoEl.textContent = '定位失败';
+        setTimeout(function () {
+          gotoEl.textContent = ORIG;
+          itemEl.classList.remove('nav-fail');
+        }, 2500);
+      });
   }
 
   // ---------- 主流程 ----------
@@ -507,7 +669,7 @@
       .then(function () {
         el.btnCopy.textContent = '✓ 已复制为 Markdown';
         setTimeout(function () {
-          el.btnCopy.textContent = '复制全部要点';
+          el.btnCopy.textContent = '复制精华';
         }, 1500);
       })
       .catch(function () {

@@ -5,22 +5,55 @@
   <title>DryRead 开发预览（mock 环境）</title>
   <link rel="stylesheet" href="../src/sidepanel.css" />
   <style>
-    /* 模拟侧栏宽度 */
-    body { max-width: 360px; margin: 0 auto; border-left: 1px solid #eee; border-right: 1px solid #eee; min-height: 100vh; }
+    body { margin: 0; }
+    .preview-wrap { display: flex; align-items: flex-start; gap: 0; }
+    .preview-article {
+      flex: 1;
+      max-width: 620px;
+      padding: 32px 40px;
+      font-family: -apple-system, "PingFang SC", sans-serif;
+      line-height: 2;
+      font-size: 16px;
+      color: #222;
+    }
+    .preview-article h1 { font-size: 22px; margin-bottom: 24px; }
+    .preview-article p { margin: 0 0 18px; }
+    .preview-sidebar {
+      width: 360px;
+      flex: none;
+      border-left: 1px solid #eee;
+      min-height: 100vh;
+      background: var(--bg);
+      position: sticky;
+      top: 0;
+      align-self: stretch;
+    }
   </style>
 </head>
 <body>
+  <div class="preview-wrap">
+    <!-- 模拟被阅读的网页正文（供 pageHighlighter 定位高亮） -->
+    <article class="preview-article" id="preview-article">
+      <h1>真正拉开差距的，是注意力分配</h1>
+      <p>大家好，我是老王。今天想跟大家聊一个特别重要的话题。在开始之前，先给大家讲个故事。</p>
+      <p>上周我见了一个朋友，他是做投资的，混得风生水起。我们聊了三个小时，我总结了一句话：真正拉开人与人差距的，不是努力程度，而是注意力的分配方式。</p>
+      <p>诺贝尔经济学奖得主赫伯特·西蒙早就说过：信息的丰富导致注意力的贫乏。</p>
+      <p>朋友给我算了一笔账：一个人每天高质量的注意力大约只有 4 小时，剩下的时间大脑都在低功耗运行。</p>
+      <p>所以高手的做法是：把这 4 小时锁死给最重要的一件事，其余时间处理杂事，甚至故意浪费。</p>
+      <p>这就是所谓的注意力预算制——像管钱一样管注意力，先支付给自己，再支付给世界。</p>
+      <p>好了今天就聊到这里，觉得有用的话别忘了点赞、在看、转发三连，我们下期再见！</p>
+    </article>
+    <div class="preview-sidebar" id="preview-sidebar"></div>
+  </div>
+
   <script src="chrome-mock.js"></script>
   <script>
-    // 加载真实侧栏 HTML 结构（body 部分），再依次加载真实脚本
+    // 把真实侧栏 HTML 结构注入 sidebar 容器，再依次加载真实脚本
     fetch('../src/sidepanel.html')
       .then(function (r) { return r.text(); })
       .then(function (html) {
         var doc = new DOMParser().parseFromString(html, 'text/html');
-        // innerHTML 注入的 <script> 不会执行，正好由我们手动按序加载
-        var container = document.createElement('div');
-        container.innerHTML = doc.body.innerHTML;
-        document.body.appendChild(container);
+        document.getElementById('preview-sidebar').innerHTML = doc.body.innerHTML;
         var s1 = document.createElement('script');
         s1.src = '../src/llm.js';
         s1.onload = function () {

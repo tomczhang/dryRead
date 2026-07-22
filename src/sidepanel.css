@@ -411,10 +411,11 @@ body {
   color: var(--red);
 }
 
-.one-line {
-  font-size: 14.5px;
-  font-weight: 600;
-  line-height: 1.55;
+.summary {
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.7;
+  color: var(--text);
   border-left: 3px solid var(--accent);
   padding-left: 10px;
 }
@@ -427,37 +428,94 @@ body {
   font-weight: 700;
   color: var(--text-2);
   letter-spacing: 0.6px;
-  margin-bottom: 8px;
-  text-transform: uppercase;
+  margin-bottom: 10px;
 }
 
 .sec-emoji {
   font-size: 13px;
 }
 
-.point-list {
-  list-style: none;
+/* ---------- 精华卡片 ---------- */
+.highlight-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
-.point-list li {
+.highlight-item {
   position: relative;
-  padding-left: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 11px 12px 11px 14px;
+  background: #fdfdfc;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
+}
+
+.highlight-item::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--accent);
+  opacity: 0.7;
+}
+
+.highlight-item:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.highlight-item:active {
+  transform: scale(0.99);
+}
+
+.highlight-index {
+  font-weight: 800;
+  color: var(--accent);
+  margin-right: 4px;
+}
+
+.highlight-point {
   font-size: 13px;
+  line-height: 1.6;
   color: var(--text);
 }
 
-.point-list li::before {
-  content: "";
-  position: absolute;
-  left: 2px;
-  top: 8px;
-  width: 6px;
-  height: 6px;
-  border-radius: 2px;
-  background: var(--accent);
+.highlight-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.highlight-location {
+  font-size: 11px;
+  color: var(--amber);
+  background: var(--amber-soft);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.highlight-goto {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.highlight-item.nav-fail .highlight-goto {
+  color: var(--red);
+}
+
+.highlights-empty {
+  font-size: 12.5px;
+  color: var(--text-3);
 }
 
 .result-footer {
