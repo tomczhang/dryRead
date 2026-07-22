@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>dryRead 开发预览（mock 环境）</title>
+  <link rel="stylesheet" href="../src/sidepanel.css" />
+  <style>
+    /* 模拟侧栏宽度 */
+    body { max-width: 360px; margin: 0 auto; border-left: 1px solid #eee; border-right: 1px solid #eee; min-height: 100vh; }
+  </style>
+</head>
+<body>
+  <script src="chrome-mock.js"></script>
+  <script>
+    // 加载真实侧栏 HTML 结构（body 部分），再依次加载真实脚本
+    fetch('../src/sidepanel.html')
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        // innerHTML 注入的 <script> 不会执行，正好由我们手动按序加载
+        var container = document.createElement('div');
+        container.innerHTML = doc.body.innerHTML;
+        document.body.appendChild(container);
+        var s1 = document.createElement('script');
+        s1.src = '../src/llm.js';
+        s1.onload = function () {
+          var s2 = document.createElement('script');
+          s2.src = '../src/sidepanel.js';
+          document.body.appendChild(s2);
+        };
+        document.body.appendChild(s1);
+      });
+  </script>
+</body>
+</html>

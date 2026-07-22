@@ -1,0 +1,14 @@
+{
+  "name": "dryread",
+  "version": "1.0.0",
+  "description": "脱去水分，留下真正有用的东西。会思考的 AI 阅读助手（Chrome 侧栏插件）。",
+  "private": true,
+  "scripts": {
+    "test": "node --test test/llm.test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/tomczhang/dryRead.git"
+  },
+  "license": "MIT"
+}
