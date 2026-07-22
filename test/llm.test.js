@@ -50,15 +50,14 @@ test('extractJson: 无 JSON 时抛错', () => {
   assert.throws(() => LLM.extractJson('这里没有任何 JSON'), /无法从模型输出中解析出 JSON/);
 });
 
-// ---------- 长文档位（无豁免，纯函数） ----------
-test('lengthBand: >1000→-10，>2000→-20，>3000→-30，无豁免', () => {
-  assert.deepStrictEqual(LLM.lengthBand(1000), { band: '0-1000', penalty: 0 });
-  assert.deepStrictEqual(LLM.lengthBand(1001), { band: '1001-2000', penalty: 10 });
-  assert.deepStrictEqual(LLM.lengthBand(2000), { band: '1001-2000', penalty: 10 });
-  assert.deepStrictEqual(LLM.lengthBand(2001), { band: '2001-3000', penalty: 20 });
-  assert.deepStrictEqual(LLM.lengthBand(3000), { band: '2001-3000', penalty: 20 });
-  assert.deepStrictEqual(LLM.lengthBand(3001), { band: '3000+', penalty: 30 });
-  assert.deepStrictEqual(LLM.lengthBand(99999), { band: '3000+', penalty: 30 });
+// ---------- 长文档位（以3500字为基准、每100字扣1分、无豁免） ----------
+test('lengthBand: ≤3500不扣，超出部分每100字扣1分', () => {
+  assert.deepStrictEqual(LLM.lengthBand(3500), { band: '0-3500', penalty: 0 });
+  assert.deepStrictEqual(LLM.lengthBand(3599), { band: '3500+', penalty: 0 }); // 不足100字不扣
+  assert.deepStrictEqual(LLM.lengthBand(3600), { band: '3500+', penalty: 1 });
+  assert.deepStrictEqual(LLM.lengthBand(4500), { band: '3500+', penalty: 10 }); // 多1000字
+  assert.deepStrictEqual(LLM.lengthBand(5500), { band: '3500+', penalty: 20 }); // 多2000字
+  assert.deepStrictEqual(LLM.lengthBand(7200), { band: '3500+', penalty: 37 });
 });
 
 test('recommend: 阅读建议分档', () => {
@@ -107,13 +106,13 @@ test('normalizeResult: 长文扣分按实际字数确定性计算，忽略模型
       character_count: 500, // 谎报小字数，应被实际字数覆盖
       length_adjustment: { default_penalty: 0, matched_exemption_conditions: ['a', 'b', 'c'] } // 旧字段应被彻底忽略
     },
-    { charCount: 2500 } // 实际 2500 → 2001-3000 档 → -20，无豁免
+    { charCount: 4500 } // 实际 4500 → 比3500多1000字 → -10，无豁免
   );
   assert.strictEqual(r.baseScore, 80);
-  assert.strictEqual(r.length.band, '2001-3000');
-  assert.strictEqual(r.length.penalty, 20);
-  assert.strictEqual(r.scoreAfterLength, 60);
-  assert.strictEqual(r.finalScore, 60);
+  assert.strictEqual(r.length.band, '3500+');
+  assert.strictEqual(r.length.penalty, 10);
+  assert.strictEqual(r.scoreAfterLength, 70);
+  assert.strictEqual(r.finalScore, 70);
 });
 
 test('normalizeResult: 不适用类型 → final_score 为 null', () => {
@@ -221,17 +220,17 @@ const SAMPLE_B_REPLY = `{
   "highlights": []
 }`;
 
-test('样例B：模板化 AI 长文（4200字）→ 基础分夹回、长文-30、AI味封顶', () => {
+test('样例B：模板化 AI 长文（4200字）→ 基础分夹回、长文-7、AI味封顶 50', () => {
   const parsed = LLM.extractJson(SAMPLE_B_REPLY);
   const r = LLM.normalizeResult(parsed, { charCount: 4200 });
   // structure 17 越界应夹回 15 → base = 13+12+9+15+12 = 61
   assert.strictEqual(r.dimensions.structure.score, 15);
   assert.strictEqual(r.baseScore, 61);
-  assert.strictEqual(r.length.band, '3000+');
-  assert.strictEqual(r.length.penalty, 30);
-  assert.strictEqual(r.scoreAfterLength, 31);
+  assert.strictEqual(r.length.band, '3500+');
+  assert.strictEqual(r.length.penalty, 7); // 4200-3500=700 → 7
+  assert.strictEqual(r.scoreAfterLength, 54);
   assert.strictEqual(r.aiSmell.detected, true);
-  assert.strictEqual(r.finalScore, 31); // 已低于封顶线，取 min(31,50)
+  assert.strictEqual(r.finalScore, 50); // min(54,50) 封顶
   assert.strictEqual(r.recommendation, '跳过');
 });
 
@@ -264,19 +263,19 @@ const SAMPLE_C_REPLY = `{
   ]
 }`;
 
-test('样例C：高密度长文（7200字）→ 无豁免硬扣 30，89→59 大概率跳过', () => {
+test('样例C：高密度长文（7200字）→ 无豁免硬扣 37，89→52 大概率跳过', () => {
   const parsed = LLM.extractJson(SAMPLE_C_REPLY);
   const r = LLM.normalizeResult(parsed, { charCount: 7200 });
   assert.strictEqual(r.baseScore, 23 + 24 + 18 + 14 + 10); // 89
-  assert.strictEqual(r.length.band, '3000+');
-  // fixture 里列了 3 项豁免条件，但新规则无豁免，照扣 30
-  assert.strictEqual(r.length.penalty, 30);
-  assert.strictEqual(r.finalScore, 59);
+  assert.strictEqual(r.length.band, '3500+');
+  // fixture 里列了 3 项豁免条件，但新规则无豁免，7200-3500=3700 → -37
+  assert.strictEqual(r.length.penalty, 37);
+  assert.strictEqual(r.finalScore, 52);
   assert.strictEqual(r.recommendation, '大概率跳过');
   assert.strictEqual(r.highlights.length, 1);
 });
 
-// 样例 D：没有 AI 味但内容平庸（2300字，基础分 46，长文-20，未触发AI味）
+// 样例 D：没有 AI 味但内容平庸（2300字，基础分 46，≤ 3500 不扣，未触发AI味）
 const SAMPLE_D_REPLY = `{
   "applicable": true,
   "article_type": "opinion",
@@ -298,13 +297,13 @@ const SAMPLE_D_REPLY = `{
   "highlights": []
 }`;
 
-test('样例D：无AI味但平庸（2300字）→ 46-20=26 跳过', () => {
+test('样例D：无AI味但平庸（2300字，≤基准）→ 不扣长文，46 跳过', () => {
   const parsed = LLM.extractJson(SAMPLE_D_REPLY);
   const r = LLM.normalizeResult(parsed, { charCount: 2300 });
   assert.strictEqual(r.baseScore, 12 + 9 + 6 + 10 + 9); // 46
-  assert.strictEqual(r.length.penalty, 20); // 2300 字 → -20，无豁免
+  assert.strictEqual(r.length.penalty, 0); // 2300 ≤ 3500，不扣
   assert.strictEqual(r.aiSmell.detected, false);
-  assert.strictEqual(r.finalScore, 26);
+  assert.strictEqual(r.finalScore, 46);
   assert.strictEqual(r.recommendation, '跳过');
 });
 
