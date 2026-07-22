@@ -1,4 +1,4 @@
-/* dryRead 侧栏主逻辑 */
+/* DryRead 侧栏主逻辑 */
 (function () {
   'use strict';
 

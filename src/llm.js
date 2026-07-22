@@ -1,4 +1,4 @@
-// dryRead 核心纯逻辑：URL 规整、提示词构建、SSE 解析、模型输出解析。
+// DryRead 核心纯逻辑：URL 规整、提示词构建、SSE 解析、模型输出解析。
 // 同时支持浏览器（挂到 globalThis.DryReadLLM）与 Node（module.exports），便于单测。
 (function (root) {
   'use strict';
@@ -28,7 +28,7 @@
   }
 
   var SYSTEM_PROMPT = [
-    '你是 dryRead，一个严格、专业、不客套的中文阅读分析师。',
+    '你是 DryRead，一个严格、专业、不客套的中文阅读分析师。',
     '你的使命：脱去文章水分，留下真正有用的东西。',
     '用户会给你一个网页的标题、URL 和正文。你要：',
     '1. 判断这篇文章值不值得读，以及哪些部分值得读（指出具体的章节、段落或关键词位置）；',

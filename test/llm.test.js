@@ -1,5 +1,5 @@
 /**
- * dryRead 核心逻辑单测（node --test）
+ * DryRead 核心逻辑单测（node --test）
  *
  * 其中「模型扮演」部分：fixture 里的模型回复是由 AI 按 SYSTEM_PROMPT 的约定
  * 对样例文章真实执行"脱水"生成的，用于验证提示词 -> JSON -> 解析 -> 规整 全链路。
