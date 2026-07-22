@@ -434,7 +434,7 @@
     }
     if (result.aiSmell && result.aiSmell.detected) {
       lines.push('');
-      lines.push('> ⚠️ 检测到系统性 AI 模板化痕迹，总分封顶为 50（文本特征判断，不代表作者一定使用了 AI）。');
+      lines.push('> ⚠️ 文本呈现较高 AI 生成可能，总分封顶为 50（宁可错杀策略；文本特征判断，不代表作者一定使用了 AI）。');
       lines.push('> 信号类别：' + result.aiSmell.signalCategories.join('、'));
     }
     if (result.topStrengths && result.topStrengths.length) {
